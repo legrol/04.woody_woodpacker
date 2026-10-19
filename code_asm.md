@@ -1,0 +1,98 @@
+# 🧠 El Cerebro Inyectado: Entendiendo nuestro Payload en Ensamblador
+ 
+<div align="center">
+<a href="https://youtu.be/jstnxHtf-rY?si=0eD9Sn5bJRMzvDVT">📺 Vídeo recomendado: El Cerebro Inyectado</a>
+</div>
+
+<br>
+
+¡Bienvenido al corazón del proyecto! Este documento explica de forma sencilla qué hace el código escrito en lenguaje **Ensamblador (ASM)** dentro de la carpeta `asm/`.
+
+---
+
+## 🦠 ¿Qué es el "Payload"?
+Imagina que el programa original es un tren de pasajeros. Nuestro "Payload" (carga útil) es un pasajero polizón que introducimos a escondidas en uno de los vagones vacíos. Cuando el tren empieza a moverse, este polizón toma el control temporalmente, hace su trabajo, y luego devuelve el control al conductor original para que nadie sospeche nada.
+
+Como este polizón se inyecta literalmente en las venas del programa víctima, debe estar escrito en el lenguaje más básico y cercano al procesador posible: [**Ensamblador**](https://www.youtube.com/watch?v=cFhUA7DnIVo&list=PLON3-BoIoWiV0Te8sxsvXw8u2k3DmBZun).
+
+---
+
+## 🛠️ Fases de Actuación del Polizón
+
+Nuestro archivo `payload.s` ejecuta una coreografía estrictamente calculada:
+
+```text
+   [Secuestro del Entry Point (Víctima inicia el Payload)]
+                              |
+                              v
+         [1. Push registers: Guardar estado original]
+                              |
+                              v
+         [1.5 Anti-Debugging: Detectar análisis con ptrace]
+                              |
+                              v
+         [2. Syscall Write: Imprimir '....WOODY....']
+                              |
+                              v
+    [3. Calcular coordenadas en memoria PIE relative to RIP]
+                              |
+                              v
+           [4. Leer Firma Mágica Inyectada por C]
+                              |
+                              v
+         [5. Inicializar PRGA con la Llave Secreta]
+                              |
+                              v
+      [6. Desencriptar código original vía XOR iterativo]
+                              |
+                              v
+    [7. Pop registers: Restaurar todos los registros de CPU]
+                              |
+                              v
+  [8. JMP ciego (Red Zone Stack): Saltar al OEP Original de la Víctima]
+```
+
+### 1. Guardar el Estado (El modo Sigilo)
+Antes de tocar nada, el polizón guarda exactamente cómo estaban la memoria y los registros del procesador de la víctima. 
+* **¿Por qué?** Si movemos los mandos de la cabina y no los dejamos como estaban, el programa original se dará cuenta y se estrellará (generando el famoso *Segmentation Fault*). Usamos comandos como `push` para hacer una "copia de seguridad" de todo.
+
+### 2. Dejar nuestra Firma
+El programa imprime el clásico mensaje en pantalla: `"....WOODY...."`. Para ello, invoca directamente a las funciones internas del sistema operativo de Linux (llamadas *Syscalls*).
+
+### 3. Encontrarse a sí mismo en el espacio (PIE)
+Los programas modernos no cargan siempre en la misma dirección de memoria por seguridad (Position Independent Executable). Nuestro polizón es ciego; no sabe dónde ha sido inyectado al milímetro.
+
+Para resolver esto, el ensamblador utiliza **Direccionamiento Relativo al RIP** (Instruction Pointer). En lugar de decir "el mensaje está en la dirección 0x4000", dice "el mensaje está 50 pasos por delante de dónde me encuentro ahora mismo" (`lea rdi, [rip + offset]`). Alternativamente, usa el clásico truco de hacer un `call` a la instrucción inmediatamente siguiente y usar un `pop` para guardar en un registro dónde aterrizó. ¡Así el polizón descubre sus propias coordenadas para no perderse en la inmensidad de la memoria RAM!
+
+### 4. Recibir el "Golpe Maestro" del inyector en C
+El archivo en ensamblador tiene preparadas unas "Variables Huecas" o una **Firma Mágica**. Cuando el empaquetador en C inserta a este pasajero en el tren, sustituye esos huecos rellenándolos con:
+* La dirección exacta de la cápsula encriptada.
+* El tamaño de dicha cápsula.
+* La **llave secreta** que necesita para abrirla.
+* Las coordenadas de la cabina de control original.
+
+### 5. Restaurar Permisos de Ejecución (El Hacker W^X - mprotect)
+Por razones de seguridad, los sistemas operativos modernos (como SELinux) bloquean las zonas de código como "Solo-Lectura" (RX). Si nuestro polizón intentara auto-desencriptar el código directamente, el Kernel lo asesinaría por violación de segmento. 
+Para burlar esto de forma indetectable (sin dejar banderas sospechosas en el archivo físico), nuestro ensamblador invoca la Syscall `mprotect` *al vuelo*. Cambia temporalmente los permisos de la RAM a Escritura (`RWX`), realiza el descifrado, y luego vuelve a bloquear la zona como Solo-Lectura (`RX`) para no dejar ningún rastro en memoria.
+
+### 6. Desencriptar la lógica original (Misión Principal)
+El código de la aplicación original está protegido por un candado criptográfico rápido y eficiente llamado [**RC4**](https://youtu.be/G3HajuqYH2U?si=eQyo9ccAz3V2cSeQ) (Rivest Cipher 4). Es un algoritmo de cifrado de flujo ideal para malware porque ocupa muy poco espacio en lenguaje máquina.
+
+Nuestro polizón extrae la llave secreta y ejecuta la fase de desencriptado a la velocidad del rayo, directamente sobre la memoria RAM. Para lograr esto, utiliza el núcleo operativo del cifrado RC4, conocido como **PRGA** (*Pseudo-Random Generation Algorithm* o Algoritmo de Generación Pseudoaleatoria):
+
+* **¿Cómo funciona el PRGA?** Imagina una batidora matemática. Toma la llave secreta inyectada previamente y la utiliza como semilla para generar un flujo infinito y aparentemente caótico de bytes (una corriente pseudoaleatoria).
+* **El truco final (XOR):** El programa ensamblador toma cada byte del código original que estaba encriptado y lo combina matemáticamente (usando la operación binaria [**XOR**](https://youtu.be/-7Weq7T-z2U?si=3TfN78q_2r6L5FGQ)) con un byte de esta corriente caótica generada por el PRGA. Como la operación XOR es reversible, al mezclar el código cifrado con la secuencia correcta, las instrucciones originales de la víctima reaparecen mágicamente en la memoria, listas para ser ejecutadas.
+
+### 7. Borrar sus huellas
+Una vez descifrado el programa original, el polizón restaura toda la "copia de seguridad" de los mandos de la cabina que hizo en el Paso 1 (`pop` de los registros).
+
+### 8. El Salto Incondicional (Retorno a la normalidad)
+El último paso de nuestro código es un salto, comando `jmp` (Jump), dictándole a la computadora: *"Ve al Punto de Entrada Original (OEP) del programa"*. El problema aquí es cómo saltar al OEP sin manchar la pila de memoria (que debe quedar exactamente igual, con variables como `argc/argv` listas para el programa original). Nuestro polizón hace un truco de hechicería de nivel bajo usando la **"Red Zone"** del estándar System V AMD64 ABI, guardando la dirección de retorno en el límite máximo matemático permitido de **128 bytes por DEBAJO** de la pila original (`[rsp - 128]`). Sacrificando de forma selectiva un registro irrelevante como `r11` (clobbered por _syscalls_), conseguimos una salvaguarda de OEP a prueba del _scheduler_ del Kernel. De este modo, la memoria está inmaculada al ejecutar el salto y es invulnerable a corrupciones aleatorias (_Heisenbugs_). El tren de pasajeros continúa su recorrido natural.
+
+---
+
+<div align="center">
+
+[⬅️ Volver al README principal](./README.md)
+
+</div>
